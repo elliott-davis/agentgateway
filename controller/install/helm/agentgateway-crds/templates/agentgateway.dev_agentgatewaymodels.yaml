@@ -5324,6 +5324,148 @@ spec:
                     required:
                     - targets
                     type: object
+                  switchyard:
+                    description: |-
+                      Contract-aware dynamic model selection driven by NVIDIA NeMo Switchyard.
+                      The targets form one equivalence class that Switchyard may route among.
+                    properties:
+                      equivalenceClass:
+                        description: |-
+                          Name of the equivalence class, reported in telemetry. Defaults to the
+                          AgentgatewayModel name.
+                        maxLength: 256
+                        minLength: 1
+                        type: string
+                      fallbackBehavior:
+                        description: |-
+                          Behavior when a recommendation falls outside the equivalence class.
+                          Defaults to FallbackToRequested.
+                        enum:
+                        - FallbackToRequested
+                        - RejectIfOutOfClass
+                        type: string
+                      sessionAffinity:
+                        description: |-
+                          Pins an agent session to its warm model. Session affinity is enabled when
+                          this field is set.
+                        properties:
+                          header:
+                            description: |-
+                              Request header carrying the agent session identifier. Defaults to
+                              x-agent-session-id.
+                            maxLength: 256
+                            minLength: 1
+                            pattern: ^:?[A-Za-z0-9!#$%&'*+\-.^_\x60|~]+$
+                            type: string
+                            x-kubernetes-validations:
+                            - message: pseudo-headers must be one of :authority, :method,
+                                :path, :scheme, or :status
+                              rule: '!self.startsWith('':'') || self in ['':authority'',
+                                '':method'', '':path'', '':scheme'', '':status'']'
+                          idleTimeout:
+                            description: |-
+                              Sessions idle for longer than this are forgotten. When unset, the data
+                              plane default is used.
+                            maxLength: 32
+                            pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
+                            type: string
+                          maxSessions:
+                            description: |-
+                              Maximum number of tracked sessions. When unset, the data plane default is
+                              used.
+                            format: int32
+                            maximum: 1000000
+                            minimum: 1
+                            type: integer
+                        type: object
+                      stageRouter:
+                        description: Tuning for the StageRouter strategy.
+                        properties:
+                          capableHoldTurns:
+                            description: |-
+                              Number of requests kept on the capable tier after an escalation. When
+                              unset, the Switchyard default is used.
+                            format: int32
+                            maximum: 100
+                            minimum: 0
+                            type: integer
+                          confidenceThresholdPercent:
+                            description: |-
+                              Scorer confidence required for a decisive pick, as a percentage from 0 to
+                              100. When unset, the Switchyard default is used.
+                            format: int32
+                            maximum: 100
+                            minimum: 0
+                            type: integer
+                          mode:
+                            description: Tier preferred when the scorer is not confident.
+                              Defaults to CapableFirst.
+                            enum:
+                            - CapableFirst
+                            - EfficientFirst
+                            type: string
+                        type: object
+                      strategy:
+                        description: Routing heuristic. Defaults to StageRouter.
+                        enum:
+                        - StageRouter
+                        type: string
+                      targets:
+                        description: |-
+                          Concrete model targets forming the equivalence class. Switchyard only
+                          selects among these targets. The first target is the anchor: strict or
+                          opt-out client requests and the FallbackToRequested behavior route to it.
+                          Clients may narrow the candidates with the x-routing-allowed-models and
+                          x-routing-min-context-window request headers.
+                        items:
+                          properties:
+                            contextWindow:
+                              description: |-
+                                Context window of this target in tokens. It is compared against the
+                                x-routing-min-context-window request header. Targets without a context
+                                window never satisfy a client's minimum context window.
+                              format: int64
+                              minimum: 1
+                              type: integer
+                            model:
+                              description: |-
+                                Concrete model name selected through the referenced model. It is required
+                                when modelRef points to a wildcard match.model. When omitted, the referenced
+                                model's exact effective match.model is used.
+                              maxLength: 1024
+                              minLength: 1
+                              type: string
+                            modelRef:
+                              description: Same-namespace AgentgatewayModel resource
+                                selected by this target.
+                              properties:
+                                name:
+                                  default: ""
+                                  description: Name of the referent
+                                  type: string
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            tier:
+                              description: Capability tier of this target.
+                              enum:
+                              - Capable
+                              - Efficient
+                              type: string
+                          required:
+                          - modelRef
+                          - tier
+                          type: object
+                        maxItems: 16
+                        minItems: 2
+                        type: array
+                        x-kubernetes-validations:
+                        - message: switchyard requires at least one Capable target
+                          rule: self.exists(t, t.tier == 'Capable')
+                        - message: switchyard requires at least one Efficient target
+                          rule: self.exists(t, t.tier == 'Efficient')
+                    required:
+                    - targets
+                    type: object
                   weighted:
                     description: Weight-based model selection.
                     properties:
@@ -5366,9 +5508,9 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-validations:
-                - message: exactly one of the fields in [weighted failover conditional]
-                    must be set
-                  rule: (has(self.weighted)?1:0)+(has(self.failover)?1:0)+(has(self.conditional)?1:0)
+                - message: exactly one of the fields in [weighted failover conditional
+                    switchyard] must be set
+                  rule: (has(self.weighted)?1:0)+(has(self.failover)?1:0)+(has(self.conditional)?1:0)+(has(self.switchyard)?1:0)
                     == 1
               visibility:
                 description: |-

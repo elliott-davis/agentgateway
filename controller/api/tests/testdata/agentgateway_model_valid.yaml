@@ -206,3 +206,55 @@ spec:
     guardrail:
       identifier: test-guardrail
       version: "1"
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: switchyard-agent
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  virtualModel:
+    switchyard:
+      strategy: StageRouter
+      equivalenceClass: coding-agents
+      targets:
+      - modelRef:
+          name: anthropic-models
+        model: anthropic/claude-sonnet-4-5
+        tier: Capable
+        contextWindow: 200000
+      - modelRef:
+          name: anthropic-models
+        model: anthropic/claude-haiku-4-5
+        tier: Efficient
+      sessionAffinity:
+        header: x-agent-session-id
+        idleTimeout: 30m
+        maxSessions: 10000
+      fallbackBehavior: RejectIfOutOfClass
+      stageRouter:
+        mode: EfficientFirst
+        confidenceThresholdPercent: 80
+        capableHoldTurns: 3
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: switchyard-minimal
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  virtualModel:
+    switchyard:
+      targets:
+      - modelRef:
+          name: openai-models
+        model: openai/gpt-5
+        tier: Capable
+      - modelRef:
+          name: openai-models
+        model: openai/gpt-5-mini
+        tier: Efficient

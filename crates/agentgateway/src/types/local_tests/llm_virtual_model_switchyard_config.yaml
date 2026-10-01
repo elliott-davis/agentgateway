@@ -1,0 +1,30 @@
+llm:
+  models:
+  - name: claude-3-7-sonnet
+    provider: anthropic
+    params:
+      apiKey: sk-anthropic
+  - name: claude-3-5-sonnet
+    provider: anthropic
+    params:
+      apiKey: sk-anthropic
+  virtualModels:
+  - name: auto
+    routing:
+      switchyard:
+        strategy: stageRouter
+        equivalenceClass: claude
+        targets:
+        - model: claude-3-7-sonnet
+          tier: capable
+          contextWindow: 200000
+        - model: claude-3-5-sonnet
+          tier: efficient
+          contextWindow: 8000
+        sessionAffinity:
+          idleTimeout: 30m
+        fallbackBehavior: rejectIfOutOfClass
+        stageRouter:
+          mode: efficientFirst
+          confidenceThreshold: 0.6
+          capableHoldTurns: 3

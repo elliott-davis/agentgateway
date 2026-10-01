@@ -84789,6 +84789,22 @@
 |`llm.virtualModels[].routing.conditional.targets`|[]object|targets are evaluated in order. The first matching condition selects the model.|
 |`llm.virtualModels[].routing.conditional.targets[].when`|string|when must evaluate to true for this target to be selected. Omit only on the final fallback target.|
 |`llm.virtualModels[].routing.conditional.targets[].model`|string|model is resolved against llm.models using the same wildcard matching as client requests.|
+|`llm.virtualModels[].routing.switchyard`|object|switchyard enables contract-aware dynamic routing among an equivalence class of models.<br>The first target is the anchor used for strict requests and fallbacks.|
+|`llm.virtualModels[].routing.switchyard.strategy`|enum|strategy selects the Switchyard algorithm. Defaults to stageRouter.<br>Possible values: `stageRouter`.|
+|`llm.virtualModels[].routing.switchyard.equivalenceClass`|string|equivalenceClass names the class for telemetry. Defaults to the virtual model name.|
+|`llm.virtualModels[].routing.switchyard.targets`|[]object|targets are the models Switchyard may select. The first target is the anchor.|
+|`llm.virtualModels[].routing.switchyard.targets[].model`|string|model is resolved against llm.models using the same wildcard matching as client requests.|
+|`llm.virtualModels[].routing.switchyard.targets[].tier`|enum|tier is capable or efficient.<br>Possible values: `capable`, `efficient`.|
+|`llm.virtualModels[].routing.switchyard.targets[].contextWindow`|integer|contextWindow in tokens, compared against the x-routing-min-context-window request header.|
+|`llm.virtualModels[].routing.switchyard.sessionAffinity`|object|sessionAffinity pins a session to its model until a decisive escalation. Disabled when unset.|
+|`llm.virtualModels[].routing.switchyard.sessionAffinity.header`|string|header carries the session identifier. Defaults to x-agent-session-id.|
+|`llm.virtualModels[].routing.switchyard.sessionAffinity.idleTimeout`|string|idleTimeout is how long an idle session stays pinned. Defaults to 1h.|
+|`llm.virtualModels[].routing.switchyard.sessionAffinity.maxSessions`|integer|maxSessions bounds the number of tracked sessions. Defaults to 10000.|
+|`llm.virtualModels[].routing.switchyard.fallbackBehavior`|enum|fallbackBehavior controls out-of-class recommendations. Defaults to fallbackToRequested.<br>Possible values: `fallbackToRequested`, `rejectIfOutOfClass`.|
+|`llm.virtualModels[].routing.switchyard.stageRouter`|object|stageRouter tunes the StageRouter strategy.|
+|`llm.virtualModels[].routing.switchyard.stageRouter.mode`|enum|mode is capableFirst (default) or efficientFirst: the tier used when the scorer is not confident.<br>Possible values: `capableFirst`, `efficientFirst`.|
+|`llm.virtualModels[].routing.switchyard.stageRouter.confidenceThreshold`|number|confidenceThreshold is the scorer confidence required for a decisive pick, in [0, 1]. Defaults to 0.5.|
+|`llm.virtualModels[].routing.switchyard.stageRouter.capableHoldTurns`|integer|capableHoldTurns is how many requests stay on the capable tier after an escalation. Defaults to 2.|
 |`llm.policies`|object|policies defines policies for handling incoming requests, before a model is selected|
 |`llm.policies.oidc`|object|Authenticate browser requests with OIDC authorization code flow.|
 |`llm.policies.oidc.issuer`|string|Issuer used for discovery and ID token validation.|

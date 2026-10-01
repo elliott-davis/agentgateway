@@ -12617,6 +12617,17 @@
               "type": "null"
             }
           ]
+        },
+        "switchyard": {
+          "description": "switchyard enables contract-aware dynamic routing among an equivalence class of models.\nThe first target is the anchor used for strict requests and fallbacks.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalLLMSwitchyardRouting"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false
@@ -12732,6 +12743,173 @@
       "additionalProperties": false,
       "required": [
         "model"
+      ]
+    },
+    "LocalLLMSwitchyardRouting": {
+      "type": "object",
+      "properties": {
+        "strategy": {
+          "description": "strategy selects the Switchyard algorithm. Defaults to stageRouter.",
+          "$ref": "#/$defs/LocalSwitchyardStrategy"
+        },
+        "equivalenceClass": {
+          "description": "equivalenceClass names the class for telemetry. Defaults to the virtual model name.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "targets": {
+          "description": "targets are the models Switchyard may select. The first target is the anchor.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LocalLLMSwitchyardTarget"
+          }
+        },
+        "sessionAffinity": {
+          "description": "sessionAffinity pins a session to its model until a decisive escalation. Disabled when unset.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalSwitchyardSessionAffinity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fallbackBehavior": {
+          "description": "fallbackBehavior controls out-of-class recommendations. Defaults to fallbackToRequested.",
+          "$ref": "#/$defs/LocalSwitchyardFallbackBehavior"
+        },
+        "stageRouter": {
+          "description": "stageRouter tunes the StageRouter strategy.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalSwitchyardStageRouter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "targets"
+      ]
+    },
+    "LocalSwitchyardStrategy": {
+      "type": "string",
+      "enum": [
+        "stageRouter"
+      ]
+    },
+    "LocalLLMSwitchyardTarget": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "description": "model is resolved against llm.models using the same wildcard matching as client requests.",
+          "type": "string"
+        },
+        "tier": {
+          "description": "tier is capable or efficient.",
+          "$ref": "#/$defs/LocalSwitchyardTier"
+        },
+        "contextWindow": {
+          "description": "contextWindow in tokens, compared against the x-routing-min-context-window request header.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "tier"
+      ]
+    },
+    "LocalSwitchyardTier": {
+      "type": "string",
+      "enum": [
+        "capable",
+        "efficient"
+      ]
+    },
+    "LocalSwitchyardSessionAffinity": {
+      "type": "object",
+      "properties": {
+        "header": {
+          "description": "header carries the session identifier. Defaults to x-agent-session-id.",
+          "type": "string",
+          "default": "x-agent-session-id"
+        },
+        "idleTimeout": {
+          "description": "idleTimeout is how long an idle session stays pinned. Defaults to 1h.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "maxSessions": {
+          "description": "maxSessions bounds the number of tracked sessions. Defaults to 10000.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0,
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "LocalSwitchyardFallbackBehavior": {
+      "type": "string",
+      "enum": [
+        "fallbackToRequested",
+        "rejectIfOutOfClass"
+      ]
+    },
+    "LocalSwitchyardStageRouter": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "description": "mode is capableFirst (default) or efficientFirst: the tier used when the scorer is not confident.",
+          "$ref": "#/$defs/LocalSwitchyardPickerMode"
+        },
+        "confidenceThreshold": {
+          "description": "confidenceThreshold is the scorer confidence required for a decisive pick, in [0, 1]. Defaults to 0.5.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "default": null
+        },
+        "capableHoldTurns": {
+          "description": "capableHoldTurns is how many requests stay on the capable tier after an escalation. Defaults to 2.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0,
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "LocalSwitchyardPickerMode": {
+      "type": "string",
+      "enum": [
+        "capableFirst",
+        "efficientFirst"
       ]
     },
     "LocalLLMPolicy": {

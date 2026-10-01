@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+llm:
+  port: 4000
+  models:
+  # Internal models can only be selected by a virtual model, never directly by clients.
+  - name: claude-3-7-sonnet
+    visibility: internal
+    provider: anthropic
+    params:
+      model: claude-3-7-sonnet-latest
+      apiKey: $ANTHROPIC_API_KEY
+  - name: claude-3-5-sonnet
+    visibility: internal
+    provider: anthropic
+    params:
+      model: claude-3-5-sonnet-latest
+      apiKey: $ANTHROPIC_API_KEY
+  virtualModels:
+  - name: coding-agent
+    routing:
+      switchyard:
+        strategy: stageRouter
+        equivalenceClass: claude
+        # The first target is the anchor.
+        targets:
+        - model: claude-3-7-sonnet
+          tier: capable
+          contextWindow: 200000
+        - model: claude-3-5-sonnet
+          tier: efficient
+          contextWindow: 200000
+        sessionAffinity:
+          header: x-agent-session-id
+          idleTimeout: 1h
+          maxSessions: 10000
+        fallbackBehavior: fallbackToRequested
+        stageRouter:
+          mode: efficientFirst
+          confidenceThreshold: 0.6
+          capableHoldTurns: 2

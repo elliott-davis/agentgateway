@@ -181,3 +181,181 @@ spec:
     guardrail:
       identifier: test-guardrail
       version: "1"
+---
+_err: switchyard requires at least one Efficient target
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: switchyard-no-efficient
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  virtualModel:
+    switchyard:
+      targets:
+      - modelRef:
+          name: a
+        tier: Capable
+      - modelRef:
+          name: b
+        tier: Capable
+---
+_err: switchyard requires at least one Capable target
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: switchyard-no-capable
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  virtualModel:
+    switchyard:
+      targets:
+      - modelRef:
+          name: a
+        tier: Efficient
+      - modelRef:
+          name: b
+        tier: Efficient
+---
+_err: Unsupported value
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: switchyard-bad-tier
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  virtualModel:
+    switchyard:
+      targets:
+      - modelRef:
+          name: a
+        tier: Capable
+      - modelRef:
+          name: b
+        tier: Cheap
+---
+_err: Unsupported value
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: switchyard-bad-fallback
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  virtualModel:
+    switchyard:
+      fallbackBehavior: Explode
+      targets:
+      - modelRef:
+          name: a
+        tier: Capable
+      - modelRef:
+          name: b
+        tier: Efficient
+---
+_err: Unsupported value
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: switchyard-bad-strategy
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  virtualModel:
+    switchyard:
+      strategy: Random
+      targets:
+      - modelRef:
+          name: a
+        tier: Capable
+      - modelRef:
+          name: b
+        tier: Efficient
+---
+_err: Unsupported value
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: switchyard-bad-mode
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  virtualModel:
+    switchyard:
+      stageRouter:
+        mode: Fastest
+      targets:
+      - modelRef:
+          name: a
+        tier: Capable
+      - modelRef:
+          name: b
+        tier: Efficient
+---
+_err: should have at least 2 items
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: switchyard-one-target
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  virtualModel:
+    switchyard:
+      targets:
+      - modelRef:
+          name: a
+        tier: Capable
+---
+_err: should be less than or equal to 100
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: switchyard-bad-confidence
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  virtualModel:
+    switchyard:
+      stageRouter:
+        confidenceThresholdPercent: 101
+      targets:
+      - modelRef:
+          name: a
+        tier: Capable
+      - modelRef:
+          name: b
+        tier: Efficient
+---
+_err: exactly one of the fields in [weighted failover conditional switchyard] must be set
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: switchyard-and-weighted
+spec:
+  parentRefs:
+  - name: ai-gateway
+    sectionName: llm
+  virtualModel:
+    weighted:
+      targets:
+      - modelRef:
+          name: a
+    switchyard:
+      targets:
+      - modelRef:
+          name: a
+        tier: Capable
+      - modelRef:
+          name: b
+        tier: Efficient

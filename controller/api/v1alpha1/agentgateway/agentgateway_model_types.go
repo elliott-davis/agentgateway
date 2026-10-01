@@ -294,7 +294,7 @@ const (
 	ModelVisibilityInternal ModelVisibility = "Internal"
 )
 
-// +kubebuilder:validation:ExactlyOneOf=weighted;failover;conditional
+// +kubebuilder:validation:ExactlyOneOf=weighted;failover;conditional;switchyard
 type VirtualModel struct {
 	// Weight-based model selection.
 	// +optional
@@ -307,6 +307,11 @@ type VirtualModel struct {
 	// Ordered condition-based model selection.
 	// +optional
 	Conditional *ConditionalModelRouting `json:"conditional,omitempty"`
+
+	// Contract-aware dynamic model selection driven by NVIDIA NeMo Switchyard.
+	// The targets form one equivalence class that Switchyard may route among.
+	// +optional
+	Switchyard *SwitchyardModelRouting `json:"switchyard,omitempty"`
 }
 
 type WeightedModelRouting struct {
@@ -366,6 +371,145 @@ type ConditionalModelTarget struct {
 	// Omit only on the final fallback target.
 	// +optional
 	When *CELExpression `json:"when,omitempty"`
+}
+
+// SwitchyardStrategy selects the Switchyard routing heuristic.
+// +k8s:enum
+type SwitchyardStrategy string
+
+const (
+	// SwitchyardStrategyStageRouter routes between the capable and efficient
+	// tiers based on the stage of the agent workload.
+	SwitchyardStrategyStageRouter SwitchyardStrategy = "StageRouter"
+)
+
+// SwitchyardTier classifies a target by capability and cost.
+// +k8s:enum
+type SwitchyardTier string
+
+const (
+	// SwitchyardTierCapable is a more capable, typically more expensive target.
+	SwitchyardTierCapable SwitchyardTier = "Capable"
+
+	// SwitchyardTierEfficient is a faster, typically cheaper target.
+	SwitchyardTierEfficient SwitchyardTier = "Efficient"
+)
+
+// SwitchyardFallbackBehavior controls what happens when Switchyard recommends a
+// model that is outside the equivalence class.
+// +k8s:enum
+type SwitchyardFallbackBehavior string
+
+const (
+	// SwitchyardFallbackToRequested routes the request to the anchor (first) target.
+	SwitchyardFallbackToRequested SwitchyardFallbackBehavior = "FallbackToRequested"
+
+	// SwitchyardFallbackRejectIfOutOfClass fails the request.
+	SwitchyardFallbackRejectIfOutOfClass SwitchyardFallbackBehavior = "RejectIfOutOfClass"
+)
+
+// SwitchyardStageRouterMode selects which tier the stage router prefers when it
+// is not confident.
+// +k8s:enum
+type SwitchyardStageRouterMode string
+
+const (
+	// SwitchyardStageRouterModeCapableFirst defaults to the capable tier.
+	SwitchyardStageRouterModeCapableFirst SwitchyardStageRouterMode = "CapableFirst"
+
+	// SwitchyardStageRouterModeEfficientFirst defaults to the efficient tier.
+	SwitchyardStageRouterModeEfficientFirst SwitchyardStageRouterMode = "EfficientFirst"
+)
+
+type SwitchyardModelRouting struct {
+	// Routing heuristic. Defaults to StageRouter.
+	// +optional
+	Strategy SwitchyardStrategy `json:"strategy,omitempty"`
+
+	// Name of the equivalence class, reported in telemetry. Defaults to the
+	// AgentgatewayModel name.
+	// +optional
+	EquivalenceClass *ShortString `json:"equivalenceClass,omitempty"`
+
+	// Concrete model targets forming the equivalence class. Switchyard only
+	// selects among these targets. The first target is the anchor: strict or
+	// opt-out client requests and the FallbackToRequested behavior route to it.
+	// Clients may narrow the candidates with the x-routing-allowed-models and
+	// x-routing-min-context-window request headers.
+	// +kubebuilder:validation:MinItems=2
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:message="switchyard requires at least one Capable target",rule="self.exists(t, t.tier == 'Capable')"
+	// +kubebuilder:validation:XValidation:message="switchyard requires at least one Efficient target",rule="self.exists(t, t.tier == 'Efficient')"
+	// +required
+	Targets []SwitchyardModelTarget `json:"targets"`
+
+	// Pins an agent session to its warm model. Session affinity is enabled when
+	// this field is set.
+	// +optional
+	SessionAffinity *SwitchyardSessionAffinity `json:"sessionAffinity,omitempty"`
+
+	// Behavior when a recommendation falls outside the equivalence class.
+	// Defaults to FallbackToRequested.
+	// +optional
+	FallbackBehavior SwitchyardFallbackBehavior `json:"fallbackBehavior,omitempty"`
+
+	// Tuning for the StageRouter strategy.
+	// +optional
+	StageRouter *SwitchyardStageRouter `json:"stageRouter,omitempty"`
+}
+
+type SwitchyardModelTarget struct {
+	ModelTargetReference `json:",inline"`
+
+	// Capability tier of this target.
+	// +required
+	Tier SwitchyardTier `json:"tier"`
+
+	// Context window of this target in tokens. It is compared against the
+	// x-routing-min-context-window request header. Targets without a context
+	// window never satisfy a client's minimum context window.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	ContextWindow *int64 `json:"contextWindow,omitempty"`
+}
+
+type SwitchyardSessionAffinity struct {
+	// Request header carrying the agent session identifier. Defaults to
+	// x-agent-session-id.
+	// +optional
+	Header *HeaderName `json:"header,omitempty"`
+
+	// Sessions idle for longer than this are forgotten. When unset, the data
+	// plane default is used.
+	// +optional
+	IdleTimeout *Duration `json:"idleTimeout,omitempty"`
+
+	// Maximum number of tracked sessions. When unset, the data plane default is
+	// used.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=1000000
+	// +optional
+	MaxSessions *int32 `json:"maxSessions,omitempty"`
+}
+
+type SwitchyardStageRouter struct {
+	// Tier preferred when the scorer is not confident. Defaults to CapableFirst.
+	// +optional
+	Mode SwitchyardStageRouterMode `json:"mode,omitempty"`
+
+	// Scorer confidence required for a decisive pick, as a percentage from 0 to
+	// 100. When unset, the Switchyard default is used.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	ConfidenceThresholdPercent *int32 `json:"confidenceThresholdPercent,omitempty"`
+
+	// Number of requests kept on the capable tier after an escalation. When
+	// unset, the Switchyard default is used.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	CapableHoldTurns *int32 `json:"capableHoldTurns,omitempty"`
 }
 
 type ModelTargetReference struct {

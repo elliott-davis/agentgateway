@@ -1,0 +1,154 @@
+---
+source: crates/agentgateway/src/types/local_tests.rs
+description: "Config normalization test for llm_virtual_model_switchyard: YAML -> LocalConfig -> NormalizedLocalConfig -> YAML"
+---
+binds:
+  - key: bind/4000
+    address: "[::]:4000"
+    protocol: http
+    tunnelProtocol: direct
+    mode: standard
+    listeners:
+      llm:
+        gatewayName: name
+        gatewayNamespace: ns
+        hostname: "*"
+        key: llm
+        listenerName: llm
+        protocol: HTTP
+listener_routes:
+  - - llm
+    - - backends:
+          - backend: "/llm:router"
+            weight: 1
+        key: "llm:request"
+        matches:
+          - path:
+              pathPrefix: /
+        name: "llm:request"
+        namespace: internal
+listener_tcp_routes:
+  - - llm
+    - []
+policies: []
+backends:
+  - backend:
+      ai:
+        name: "llm:model:claude-3-7-sonnet:0"
+        namespace: ""
+        target:
+          providers:
+            - active:
+                claude-3-7-sonnet:
+                  endpoint:
+                    name: claude-3-7-sonnet
+                    provider:
+                      anthropic: {}
+                    hostOverride: ~
+                    pathOverride: ~
+                    pathPrefix: ~
+                    tokenize: false
+                    inlinePolicies:
+                      - backendAuth:
+                          key:
+                            value: "<redacted>"
+                  info:
+                    health: 1
+                    requestLatency: 0
+                    pendingRequests: 0
+                    totalRequests: 0
+                    consecutiveFailures: 0
+                    timesEjected: 0
+                    evictedUntil: ~
+                  capacity: 1
+              rejected: {}
+    inlinePolicies:
+      - ai: {}
+  - backend:
+      ai:
+        name: "llm:model:claude-3-5-sonnet:1"
+        namespace: ""
+        target:
+          providers:
+            - active:
+                claude-3-5-sonnet:
+                  endpoint:
+                    name: claude-3-5-sonnet
+                    provider:
+                      anthropic: {}
+                    hostOverride: ~
+                    pathOverride: ~
+                    pathPrefix: ~
+                    tokenize: false
+                    inlinePolicies:
+                      - backendAuth:
+                          key:
+                            value: "<redacted>"
+                  info:
+                    health: 1
+                    requestLatency: 0
+                    pendingRequests: 0
+                    totalRequests: 0
+                    consecutiveFailures: 0
+                    timesEjected: 0
+                    evictedUntil: ~
+                  capacity: 1
+              rejected: {}
+    inlinePolicies:
+      - ai: {}
+  - backend:
+      llmRouter:
+        name: "llm:router"
+        namespace: ""
+        target:
+          discovery: catalog
+          models:
+            - name: claude-3-7-sonnet
+              created: 0
+              visibility: public
+              headerMatches: []
+              backend:
+                backend: "/llm:model:claude-3-7-sonnet:0"
+                weight: 1
+              policies:
+                llm: {}
+                authorization: ~
+              backendPolicies: []
+            - name: claude-3-5-sonnet
+              created: 0
+              visibility: public
+              headerMatches: []
+              backend:
+                backend: "/llm:model:claude-3-5-sonnet:1"
+                weight: 1
+              policies:
+                llm: {}
+                authorization: ~
+              backendPolicies: []
+          virtualModels:
+            - name: auto
+              created: 0
+              llmPolicy: {}
+              routing:
+                switchyard:
+                  strategy: stageRouter
+                  equivalenceClass: claude
+                  targets:
+                    - model: claude-3-7-sonnet
+                      tier: capable
+                      contextWindow: 200000
+                    - model: claude-3-5-sonnet
+                      tier: efficient
+                      contextWindow: 8000
+                  sessionAffinity:
+                    header: x-agent-session-id
+                    idleTimeout: 30m0s
+                    maxSessions: 10000
+                  fallbackBehavior: rejectIfOutOfClass
+                  stageRouter:
+                    efficientFirst: true
+                    confidenceThreshold: 0.6
+                    capableHoldTurns: 3
+route_groups: []
+workloads: []
+services: []

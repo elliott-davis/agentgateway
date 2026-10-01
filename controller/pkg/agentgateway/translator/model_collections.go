@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"google.golang.org/protobuf/types/known/durationpb"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/ptr"
@@ -535,9 +536,74 @@ func translateVirtualModel(ctx RouteContext, model *agentgateway.AgentgatewayMod
 				Failover: &api.ModelRoute_VirtualModel_Failover{Backend: backendRef(backend.Key)},
 			},
 		}, []*api.Resource{backendResource(backend)}, err
+	case vm.Switchyard != nil:
+		return translateSwitchyardModel(ctx, model, vm.Switchyard)
 	default:
-		return nil, nil, fmt.Errorf("virtualModel must define weighted, conditional, or failover")
+		return nil, nil, fmt.Errorf("virtualModel must define weighted, conditional, failover, or switchyard")
 	}
+}
+
+func translateSwitchyardModel(ctx RouteContext, model *agentgateway.AgentgatewayModel, sy *agentgateway.SwitchyardModelRouting) (*api.ModelRoute_VirtualModel, []*api.Resource, error) {
+	targets := make([]*api.ModelRoute_VirtualModel_Switchyard_Target, 0, len(sy.Targets))
+	var errs []error
+	for _, target := range sy.Targets {
+		modelName, err := resolveModelTargetName(ctx, model.Namespace, target.ModelTargetReference)
+		if err != nil {
+			errs = append(errs, err)
+			modelName = unresolvedModelTargetName(target.ModelTargetReference)
+		}
+		t := &api.ModelRoute_VirtualModel_Switchyard_Target{
+			Model:   modelName,
+			Tier:    api.ModelRoute_VirtualModel_Switchyard_CAPABLE,
+			Invalid: err != nil,
+		}
+		if target.Tier == agentgateway.SwitchyardTierEfficient {
+			t.Tier = api.ModelRoute_VirtualModel_Switchyard_EFFICIENT
+		}
+		if target.ContextWindow != nil {
+			t.ContextWindow = new(uint64(*target.ContextWindow)) //nolint:gosec // CEL constrains this to positive int64.
+		}
+		targets = append(targets, t)
+	}
+
+	out := &api.ModelRoute_VirtualModel_Switchyard{
+		Strategy:         api.ModelRoute_VirtualModel_Switchyard_STAGE_ROUTER,
+		EquivalenceClass: ptr.OrDefault(sy.EquivalenceClass, model.Name),
+		Targets:          targets,
+		FallbackBehavior: api.ModelRoute_VirtualModel_Switchyard_FALLBACK_TO_REQUESTED,
+	}
+	if sy.FallbackBehavior == agentgateway.SwitchyardFallbackRejectIfOutOfClass {
+		out.FallbackBehavior = api.ModelRoute_VirtualModel_Switchyard_REJECT_IF_OUT_OF_CLASS
+	}
+	if sa := sy.SessionAffinity; sa != nil {
+		header := "x-agent-session-id"
+		if sa.Header != nil {
+			header = string(*sa.Header)
+		}
+		out.SessionAffinity = &api.ModelRoute_VirtualModel_Switchyard_SessionAffinity{
+			Header: header,
+		}
+		if sa.IdleTimeout != nil {
+			out.SessionAffinity.IdleTimeout = durationpb.New(sa.IdleTimeout.Duration)
+		}
+		if sa.MaxSessions != nil {
+			out.SessionAffinity.MaxSessions = uint32(*sa.MaxSessions) //nolint:gosec // CEL constrains this to positive int32.
+		}
+	}
+	if sr := sy.StageRouter; sr != nil {
+		out.StageRouter = &api.ModelRoute_VirtualModel_Switchyard_StageRouter{
+			EfficientFirst: sr.Mode == agentgateway.SwitchyardStageRouterModeEfficientFirst,
+		}
+		if sr.ConfidenceThresholdPercent != nil {
+			out.StageRouter.ConfidenceThreshold = new(float64(*sr.ConfidenceThresholdPercent) / 100)
+		}
+		if sr.CapableHoldTurns != nil {
+			out.StageRouter.CapableHoldTurns = new(uint32(*sr.CapableHoldTurns)) //nolint:gosec // CEL constrains this to non-negative int32.
+		}
+	}
+	return &api.ModelRoute_VirtualModel{
+		Routing: &api.ModelRoute_VirtualModel_Switchyard_{Switchyard: out},
+	}, nil, errors.Join(errs...)
 }
 
 func modelConcreteBackend(ctx RouteContext, model *agentgateway.AgentgatewayModel, parent RouteParentReference, selectedModel *string) (*api.Backend, error) {

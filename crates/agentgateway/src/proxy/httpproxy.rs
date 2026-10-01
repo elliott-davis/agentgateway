@@ -2345,6 +2345,33 @@ async fn build_simple_backend_call(
 	Ok((backend_call, maybe_inference))
 }
 
+fn set_model_routing_headers(
+	headers: &mut HeaderMap,
+	decision: &llm::switchyard::ModelRoutingDecision,
+) {
+	for (name, value) in [
+		(
+			"x-agentgateway-routed-model",
+			decision.routed_model.as_str(),
+		),
+		(
+			"x-agentgateway-original-model",
+			decision.original_model.as_str(),
+		),
+		(
+			"x-agentgateway-routing-decision",
+			decision.decision.as_str(),
+		),
+	] {
+		if value.is_empty() {
+			continue;
+		}
+		if let Ok(value) = ::http::HeaderValue::from_str(value) {
+			headers.insert(::http::HeaderName::from_static(name), value);
+		}
+	}
+}
+
 // Explicit policy routes retain their suffix semantics and override native model classification.
 fn resolve_llm_route_type(
 	policy: Option<&llm::Policy>,
@@ -2383,7 +2410,17 @@ async fn make_backend_call(
 		if let Some(path_match) = router.trace_path(&req) {
 			log.add(|log| log.path_match = Some(path_match));
 		}
-		let resolved = match router.resolve(&mut req, &inputs.model_catalog).await {
+		let resolve_result = router.resolve(&mut req, &inputs.model_catalog).await;
+		// Applies to both routed and rejected requests; response headers are merged for all responses.
+		if let Some(decision) = req
+			.extensions()
+			.get::<llm::switchyard::ModelRoutingDecision>()
+			.cloned()
+		{
+			set_model_routing_headers(response_policies.headers(), &decision);
+			log.add(|l| l.model_routing = Some(decision));
+		}
+		let resolved = match resolve_result {
 			model_router::ResolveResult::DirectResponse(resp) => return Ok(resp),
 			model_router::ResolveResult::Backend(resolved) => resolved,
 		};

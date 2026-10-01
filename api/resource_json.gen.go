@@ -2129,6 +2129,50 @@ func (this *ModelRoute_VirtualModel_Failover) UnmarshalJSON(b []byte) error {
 	return ResourceUnmarshaler.Unmarshal(bytes.NewReader(b), this)
 }
 
+// MarshalJSON is a custom marshaler for ModelRoute_VirtualModel_Switchyard
+func (this *ModelRoute_VirtualModel_Switchyard) MarshalJSON() ([]byte, error) {
+	str, err := ResourceMarshaler.MarshalToString(this)
+	return []byte(str), err
+}
+
+// UnmarshalJSON is a custom unmarshaler for ModelRoute_VirtualModel_Switchyard
+func (this *ModelRoute_VirtualModel_Switchyard) UnmarshalJSON(b []byte) error {
+	return ResourceUnmarshaler.Unmarshal(bytes.NewReader(b), this)
+}
+
+// MarshalJSON is a custom marshaler for ModelRoute_VirtualModel_Switchyard_Target
+func (this *ModelRoute_VirtualModel_Switchyard_Target) MarshalJSON() ([]byte, error) {
+	str, err := ResourceMarshaler.MarshalToString(this)
+	return []byte(str), err
+}
+
+// UnmarshalJSON is a custom unmarshaler for ModelRoute_VirtualModel_Switchyard_Target
+func (this *ModelRoute_VirtualModel_Switchyard_Target) UnmarshalJSON(b []byte) error {
+	return ResourceUnmarshaler.Unmarshal(bytes.NewReader(b), this)
+}
+
+// MarshalJSON is a custom marshaler for ModelRoute_VirtualModel_Switchyard_SessionAffinity
+func (this *ModelRoute_VirtualModel_Switchyard_SessionAffinity) MarshalJSON() ([]byte, error) {
+	str, err := ResourceMarshaler.MarshalToString(this)
+	return []byte(str), err
+}
+
+// UnmarshalJSON is a custom unmarshaler for ModelRoute_VirtualModel_Switchyard_SessionAffinity
+func (this *ModelRoute_VirtualModel_Switchyard_SessionAffinity) UnmarshalJSON(b []byte) error {
+	return ResourceUnmarshaler.Unmarshal(bytes.NewReader(b), this)
+}
+
+// MarshalJSON is a custom marshaler for ModelRoute_VirtualModel_Switchyard_StageRouter
+func (this *ModelRoute_VirtualModel_Switchyard_StageRouter) MarshalJSON() ([]byte, error) {
+	str, err := ResourceMarshaler.MarshalToString(this)
+	return []byte(str), err
+}
+
+// UnmarshalJSON is a custom unmarshaler for ModelRoute_VirtualModel_Switchyard_StageRouter
+func (this *ModelRoute_VirtualModel_Switchyard_StageRouter) UnmarshalJSON(b []byte) error {
+	return ResourceUnmarshaler.Unmarshal(bytes.NewReader(b), this)
+}
+
 // MarshalJSON is a custom marshaler for ModelRoute_ConcreteModel
 func (this *ModelRoute_ConcreteModel) MarshalJSON() ([]byte, error) {
 	str, err := ResourceMarshaler.MarshalToString(this)

@@ -1,0 +1,310 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: virtual-models
+  namespace: default
+spec:
+  gatewayClassName: agentgateway
+  listeners:
+  - name: llm
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      kinds:
+      - group: agentgateway.dev
+        kind: AgentgatewayModel
+      namespaces:
+        from: Same
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: claude-3-7-sonnet
+  namespace: default
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: virtual-models
+    sectionName: llm
+  visibility: Internal
+  provider: Anthropic
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: claude-3-5-sonnet
+  namespace: default
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: virtual-models
+    sectionName: llm
+  visibility: Internal
+  provider: Anthropic
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: coding-agent
+  namespace: default
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: virtual-models
+    sectionName: llm
+  virtualModel:
+    switchyard:
+      targets:
+      - modelRef:
+          name: claude-3-7-sonnet
+        tier: Capable
+        contextWindow: 200000
+      - modelRef:
+          name: claude-3-5-sonnet
+        tier: Efficient
+      - modelRef:
+          name: missing-model
+        tier: Efficient
+      sessionAffinity:
+        header: x-agent-session-id
+        idleTimeout: 30m
+        maxSessions: 5000
+      fallbackBehavior: RejectIfOutOfClass
+      stageRouter:
+        mode: EfficientFirst
+        confidenceThresholdPercent: 75
+        capableHoldTurns: 2
+
+---
+# Output
+output:
+- gateway:
+    Name: virtual-models
+    Namespace: default
+  resource:
+    backend:
+      ai:
+        providerGroups:
+        - providers:
+          - anthropic: {}
+            name: backend
+      key: default/claude-3-5-sonnet/backend.llm
+      name:
+        name: claude-3-5-sonnet
+        namespace: default
+- gateway:
+    Name: virtual-models
+    Namespace: default
+  resource:
+    backend:
+      ai:
+        providerGroups:
+        - providers:
+          - anthropic: {}
+            name: backend
+      key: default/claude-3-7-sonnet/backend.llm
+      name:
+        name: claude-3-7-sonnet
+        namespace: default
+- gateway:
+    Name: virtual-models
+    Namespace: default
+  resource:
+    bind:
+      key: 80/default/virtual-models
+      port: 80
+- gateway:
+    Name: virtual-models
+    Namespace: default
+  resource:
+    listener:
+      bindKey: 80/default/virtual-models
+      key: default/virtual-models.llm
+      name:
+        gatewayName: virtual-models
+        gatewayNamespace: default
+        listenerName: llm
+      protocol: HTTP
+- gateway:
+    Name: virtual-models
+    Namespace: default
+  resource:
+    modelRoute:
+      concreteModel:
+        backend:
+          backend: default/claude-3-5-sonnet/backend.llm
+        modelVisibility: INTERNAL
+      key: default/claude-3-5-sonnet.llm
+      listenerKey: default/virtual-models.llm
+      match:
+        model: claude-3-5-sonnet
+- gateway:
+    Name: virtual-models
+    Namespace: default
+  resource:
+    modelRoute:
+      concreteModel:
+        backend:
+          backend: default/claude-3-7-sonnet/backend.llm
+        modelVisibility: INTERNAL
+      key: default/claude-3-7-sonnet.llm
+      listenerKey: default/virtual-models.llm
+      match:
+        model: claude-3-7-sonnet
+- gateway:
+    Name: virtual-models
+    Namespace: default
+  resource:
+    modelRoute:
+      key: default/coding-agent.llm
+      listenerKey: default/virtual-models.llm
+      match:
+        model: coding-agent
+      virtualModel:
+        switchyard:
+          equivalenceClass: coding-agent
+          fallbackBehavior: REJECT_IF_OUT_OF_CLASS
+          sessionAffinity:
+            header: x-agent-session-id
+            idleTimeout: 1800s
+            maxSessions: 5000
+          stageRouter:
+            capableHoldTurns: 2
+            confidenceThreshold: 0.75
+            efficientFirst: true
+          targets:
+          - contextWindow: "200000"
+            model: claude-3-7-sonnet
+          - model: claude-3-5-sonnet
+            tier: EFFICIENT
+          - invalid: true
+            model: missing-model
+            tier: EFFICIENT
+status:
+- apiVersion: agentgateway.dev/v1alpha1
+  kind: AgentgatewayModel
+  metadata:
+    name: claude-3-5-sonnet
+    namespace: default
+  spec: null
+  status:
+    parents:
+    - conditions:
+      - lastTransitionTime: fake
+        message: Successfully accepted AgentgatewayModel
+        reason: Accepted
+        status: "True"
+        type: Accepted
+      - lastTransitionTime: fake
+        message: ""
+        reason: ResolvedRefs
+        status: "True"
+        type: ResolvedRefs
+      controllerName: agentgateway.dev/agentgateway
+      parentRef:
+        group: gateway.networking.k8s.io
+        kind: Gateway
+        name: virtual-models
+        namespace: default
+        sectionName: llm
+- apiVersion: agentgateway.dev/v1alpha1
+  kind: AgentgatewayModel
+  metadata:
+    name: claude-3-7-sonnet
+    namespace: default
+  spec: null
+  status:
+    parents:
+    - conditions:
+      - lastTransitionTime: fake
+        message: Successfully accepted AgentgatewayModel
+        reason: Accepted
+        status: "True"
+        type: Accepted
+      - lastTransitionTime: fake
+        message: ""
+        reason: ResolvedRefs
+        status: "True"
+        type: ResolvedRefs
+      controllerName: agentgateway.dev/agentgateway
+      parentRef:
+        group: gateway.networking.k8s.io
+        kind: Gateway
+        name: virtual-models
+        namespace: default
+        sectionName: llm
+- apiVersion: agentgateway.dev/v1alpha1
+  kind: AgentgatewayModel
+  metadata:
+    name: coding-agent
+    namespace: default
+  spec: null
+  status:
+    parents:
+    - conditions:
+      - lastTransitionTime: fake
+        message: Successfully accepted AgentgatewayModel
+        reason: Accepted
+        status: "True"
+        type: Accepted
+      - lastTransitionTime: fake
+        message: model target default/missing-model not found
+        reason: Invalid
+        status: "False"
+        type: ResolvedRefs
+      controllerName: agentgateway.dev/agentgateway
+      parentRef:
+        group: gateway.networking.k8s.io
+        kind: Gateway
+        name: virtual-models
+        namespace: default
+        sectionName: llm
+- apiVersion: gateway.networking.k8s.io/v1
+  kind: Gateway
+  metadata:
+    name: virtual-models
+    namespace: default
+  spec: null
+  status:
+    attachedListenerSets: 0
+    conditions:
+    - lastTransitionTime: fake
+      message: ""
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: fake
+      message: Successfully programmed Gateway
+      reason: Programmed
+      status: "True"
+      type: Programmed
+    listeners:
+    - attachedRoutes: 3
+      conditions:
+      - lastTransitionTime: fake
+        message: No errors found
+        reason: Accepted
+        status: "True"
+        type: Accepted
+      - lastTransitionTime: fake
+        message: No errors found
+        reason: NoConflicts
+        status: "False"
+        type: Conflicted
+      - lastTransitionTime: fake
+        message: No errors found
+        reason: Programmed
+        status: "True"
+        type: Programmed
+      - lastTransitionTime: fake
+        message: No errors found
+        reason: ResolvedRefs
+        status: "True"
+        type: ResolvedRefs
+      name: llm
+      supportedKinds:
+      - group: agentgateway.dev
+        kind: AgentgatewayModel

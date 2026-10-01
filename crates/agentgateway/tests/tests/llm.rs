@@ -815,6 +815,103 @@ llm:
 }
 
 #[tokio::test]
+async fn llm_switchyard_virtual_model_routes_and_pins_session() {
+	let mock = body_mock(llm_body!("response/completions/basic.json")).await;
+	let config = format!(
+		r#"
+llm:
+  port: 0
+  models:
+  - name: cap-model
+    visibility: internal
+    provider: openAI
+    params:
+      baseUrl: http://{0}/v1
+  - name: eff-model
+    visibility: internal
+    provider: openAI
+    params:
+      baseUrl: http://{0}/v1
+  virtualModels:
+  - name: auto-switchyard
+    routing:
+      switchyard:
+        equivalenceClass: test-class
+        targets:
+        - model: cap-model
+          tier: capable
+        - model: eff-model
+          tier: efficient
+        sessionAffinity: {{}}
+        stageRouter:
+          mode: efficientFirst
+"#,
+		mock.address()
+	);
+	let t = setup_local_llm_config(&config).await;
+	let io = t.serve_http(strng::literal!("bind/0"));
+	let send = |io: MemoryClient, body: Value, session: &'static str| async move {
+		RequestBuilder::new(Method::POST, "http://lo/v1/chat/completions")
+			.header("x-agent-session-id", session)
+			.body(Body::from(body.to_string()))
+			.send(io)
+			.await
+			.expect("completions request")
+	};
+
+	let turn1 =
+		json!({"model": "auto-switchyard", "messages": [{"role": "user", "content": "say hi"}]});
+	let res = send(io.clone(), turn1, "sw-session").await;
+	assert_eq!(res.status(), StatusCode::OK);
+	assert_eq!(res.headers()["x-agentgateway-routed-model"], "eff-model");
+	assert_eq!(
+		res.headers()["x-agentgateway-original-model"],
+		"auto-switchyard"
+	);
+	assert_eq!(
+		res.headers()["x-agentgateway-routing-decision"],
+		"fall_open"
+	);
+	let _ = read_body_raw(res.into_body()).await;
+
+	// A very different, longer second turn with no decisive signal stays on the turn-1 model.
+	let turn2 = json!({"model": "auto-switchyard", "messages": [
+		{"role": "user", "content": "lorem ipsum ".repeat(2000)},
+		{"role": "assistant", "content": "ok"},
+		{"role": "user", "content": "continue"},
+	]});
+	let res = send(io.clone(), turn2, "sw-session").await;
+	assert_eq!(res.status(), StatusCode::OK);
+	assert_eq!(res.headers()["x-agentgateway-routed-model"], "eff-model");
+	assert_eq!(
+		res.headers()["x-agentgateway-routing-decision"],
+		"session_affinity"
+	);
+	let _ = read_body_raw(res.into_body()).await;
+
+	let requests = mock.received_requests().await.expect("upstream requests");
+	assert_eq!(requests.len(), 2);
+	for request in &requests {
+		let body: Value = serde_json::from_slice(&request.body).expect("upstream JSON");
+		assert_eq!(body["model"], "eff-model");
+	}
+
+	let log = agent_core::telemetry::testing::eventually_find(&[
+		("scope", "request"),
+		("llm.routing_decision", "session_affinity"),
+	])
+	.await
+	.unwrap();
+	let want = json!({
+		"llm.routed_model": "eff-model",
+		"llm.original_model": "auto-switchyard",
+		"llm.routing_strategy": "stage_router",
+		"llm.session_affinity_hit": true
+	});
+	assert!(is_json_subset(&want, &log), "want={want:#?} got={log:#?}");
+}
+
+#[tokio::test]
 async fn llm_model_router_handles_multipart_audio_detect_request() {
 	let mock = body_mock(llm_body!("response/completions/basic.json")).await;
 	let config = format!(

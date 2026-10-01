@@ -220,6 +220,8 @@ sqlx = { version = "0.9", default-features = false, features = [
 ] }
 stacker = "0.1"
 subtle = "2"
+switchyard-libsy = "0.3.0"
+switchyard-protocol = "0.3.0"
 tempfile = "3.27"
 thiserror = "2.0"
 tiktoken-rs = "0.12"

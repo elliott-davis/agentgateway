@@ -1140,6 +1140,7 @@ impl RequestLog {
 			method: None,
 			path: None,
 			path_match: None,
+			model_routing: None,
 			version: None,
 			status: None,
 			reason: None,
@@ -1310,6 +1311,8 @@ pub struct RequestLog {
 	pub server_port: Option<u16>,
 	pub path: Option<String>,
 	pub path_match: Option<Strng>,
+	/// Outcome of a Switchyard virtual-model routing decision, when one was made.
+	pub model_routing: Option<crate::llm::switchyard::ModelRoutingDecision>,
 	pub version: Option<::http::Version>,
 	pub status: Option<crate::http::StatusCode>,
 	pub reason: Option<ProxyResponseReason>,
@@ -1843,6 +1846,40 @@ impl Drop for DropOnLog {
 					llm_response
 						.as_ref()
 						.and_then(|l| l.response_model.display()),
+				),
+				// Not part of official semconv
+				(
+					"llm.routed_model",
+					log
+						.model_routing
+						.as_ref()
+						.filter(|r| !r.routed_model.is_empty())
+						.map(|r| r.routed_model.as_str().into()),
+				),
+				(
+					"llm.original_model",
+					log
+						.model_routing
+						.as_ref()
+						.map(|r| r.original_model.as_str().into()),
+				),
+				(
+					"llm.routing_strategy",
+					log.model_routing.as_ref().map(|r| r.strategy.into()),
+				),
+				(
+					"llm.routing_decision",
+					log
+						.model_routing
+						.as_ref()
+						.map(|r| r.decision.as_str().into()),
+				),
+				(
+					"llm.session_affinity_hit",
+					log
+						.model_routing
+						.as_ref()
+						.map(|r| r.session_affinity_hit.into()),
 				),
 				("gen_ai.usage.input_tokens", input_tokens.map(Into::into)),
 				(

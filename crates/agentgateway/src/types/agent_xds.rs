@@ -1768,6 +1768,64 @@ impl ModelRoute {
 							},
 						}
 					},
+					Some(virtual_model::Routing::Switchyard(switchyard)) => {
+						use virtual_model::switchyard as sw;
+						if switchyard.targets.is_empty() {
+							return Err(ProtoError::Generic(
+								"model route switchyard virtual model must have at least one target".to_string(),
+							));
+						}
+						let targets = switchyard
+							.targets
+							.iter()
+							.map(|target| llm::switchyard::SwitchyardTarget {
+								model: target.model.clone(),
+								tier: match sw::Tier::try_from(target.tier).unwrap_or(sw::Tier::Capable) {
+									sw::Tier::Capable => llm::switchyard::Tier::Capable,
+									sw::Tier::Efficient => llm::switchyard::Tier::Efficient,
+								},
+								context_window: target.context_window,
+								invalid: target.invalid,
+							})
+							.collect();
+						let session_affinity = switchyard.session_affinity.as_ref().map(|affinity| {
+							llm::switchyard::SessionAffinity::new(
+								affinity.header.clone(),
+								affinity.idle_timeout.map(convert_duration),
+								(affinity.max_sessions > 0).then_some(affinity.max_sessions as usize),
+							)
+						});
+						let fallback = match sw::FallbackBehavior::try_from(switchyard.fallback_behavior)
+							.unwrap_or(sw::FallbackBehavior::FallbackToRequested)
+						{
+							sw::FallbackBehavior::FallbackToRequested => {
+								llm::switchyard::FallbackBehavior::FallbackToRequested
+							},
+							sw::FallbackBehavior::RejectIfOutOfClass => {
+								llm::switchyard::FallbackBehavior::RejectIfOutOfClass
+							},
+						};
+						let defaults = llm::switchyard::StageRouterSettings::default();
+						let stage_router = switchyard.stage_router.as_ref();
+						let settings = llm::switchyard::StageRouterSettings {
+							efficient_first: stage_router.is_some_and(|s| s.efficient_first),
+							confidence_threshold: stage_router
+								.and_then(|s| s.confidence_threshold)
+								.unwrap_or(defaults.confidence_threshold),
+							capable_hold_turns: stage_router
+								.and_then(|s| s.capable_hold_turns)
+								.unwrap_or(defaults.capable_hold_turns),
+						};
+						let routing = llm::switchyard::SwitchyardRouting::new(
+							switchyard.equivalence_class.clone(),
+							targets,
+							session_affinity,
+							fallback,
+							settings,
+						)
+						.map_err(|e| ProtoError::Generic(format!("invalid switchyard virtual model: {e}")))?;
+						llm::model_router::VirtualModelRouting::Switchyard(routing)
+					},
 					None => {
 						return Err(ProtoError::Generic(
 							"model route virtual model must specify routing".to_string(),
@@ -5556,6 +5614,114 @@ mod tests {
 		assert_eq!(targets[1].weight, 60);
 		assert!(!targets[1].invalid);
 		Ok(())
+	}
+
+	fn switchyard_proto_route(
+		switchyard: proto::agent::model_route::virtual_model::Switchyard,
+	) -> proto::agent::ModelRoute {
+		use proto::agent::model_route::virtual_model::Routing;
+		use proto::agent::model_route::{Kind, VirtualModel};
+		proto::agent::ModelRoute {
+			key: "default/auto".to_string(),
+			listener_key: "default/gw.http".to_string(),
+			router_key: String::new(),
+			created: 1_704_153_600,
+			r#match: Some(proto::agent::model_route::Match {
+				model: "auto".to_string(),
+			}),
+			kind: Some(Kind::VirtualModel(VirtualModel {
+				routing: Some(Routing::Switchyard(switchyard)),
+			})),
+			ai_policy: None,
+			authorization: None,
+		}
+	}
+
+	#[test]
+	fn test_switchyard_model_route_from_xds() -> Result<(), ProtoError> {
+		use proto::agent::model_route::virtual_model::Switchyard;
+		use proto::agent::model_route::virtual_model::switchyard as sw;
+
+		let proto_route = switchyard_proto_route(Switchyard {
+			strategy: sw::Strategy::StageRouter as i32,
+			equivalence_class: "claude".to_string(),
+			targets: vec![
+				sw::Target {
+					model: "claude-3-7-sonnet".to_string(),
+					tier: sw::Tier::Capable as i32,
+					context_window: Some(200_000),
+					invalid: false,
+				},
+				sw::Target {
+					model: "claude-3-5-sonnet".to_string(),
+					tier: sw::Tier::Efficient as i32,
+					context_window: None,
+					invalid: true,
+				},
+			],
+			session_affinity: Some(sw::SessionAffinity {
+				header: "x-agent-session-id".to_string(),
+				idle_timeout: Some(prost_types::Duration {
+					seconds: 600,
+					nanos: 0,
+				}),
+				max_sessions: 0,
+			}),
+			fallback_behavior: sw::FallbackBehavior::RejectIfOutOfClass as i32,
+			stage_router: Some(sw::StageRouter {
+				efficient_first: true,
+				confidence_threshold: Some(0.7),
+				capable_hold_turns: None,
+			}),
+		});
+		let (route, _) = ModelRoute::from_xds(&proto_route, &mut Diagnostics::default())?;
+		let ModelRouteKind::Virtual(model) = route.kind else {
+			panic!("expected virtual model route");
+		};
+		let llm::model_router::VirtualModelRouting::Switchyard(sw) = model.routing else {
+			panic!("expected switchyard routing");
+		};
+		assert_eq!(sw.equivalence_class, "claude");
+		assert_eq!(sw.targets.len(), 2);
+		assert_eq!(sw.targets[0].tier, llm::switchyard::Tier::Capable);
+		assert_eq!(sw.targets[0].context_window, Some(200_000));
+		assert_eq!(sw.targets[1].tier, llm::switchyard::Tier::Efficient);
+		assert!(sw.targets[1].invalid);
+		assert_eq!(
+			sw.fallback_behavior,
+			llm::switchyard::FallbackBehavior::RejectIfOutOfClass
+		);
+		let affinity = sw.session_affinity.as_ref().expect("affinity");
+		assert_eq!(affinity.header, "x-agent-session-id");
+		assert_eq!(affinity.idle_timeout, Duration::from_secs(600));
+		assert_eq!(affinity.max_sessions, 10_000);
+		assert!(sw.stage_router.efficient_first);
+		assert_eq!(sw.stage_router.confidence_threshold, 0.7);
+		assert_eq!(sw.stage_router.capable_hold_turns, 2);
+		Ok(())
+	}
+
+	#[test]
+	fn test_switchyard_model_route_from_xds_rejects_bad_config() {
+		use proto::agent::model_route::virtual_model::Switchyard;
+		use proto::agent::model_route::virtual_model::switchyard as sw;
+
+		let empty = switchyard_proto_route(Switchyard::default());
+		assert!(ModelRoute::from_xds(&empty, &mut Diagnostics::default()).is_err());
+
+		let bad_threshold = switchyard_proto_route(Switchyard {
+			targets: vec![sw::Target {
+				model: "m".to_string(),
+				..Default::default()
+			}],
+			stage_router: Some(sw::StageRouter {
+				efficient_first: false,
+				confidence_threshold: Some(1.5),
+				capable_hold_turns: None,
+			}),
+			..Default::default()
+		});
+		assert!(ModelRoute::from_xds(&bad_threshold, &mut Diagnostics::default()).is_err());
 	}
 
 	#[test]

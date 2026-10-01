@@ -171,6 +171,7 @@ pub enum VirtualModelRouting {
 	Weighted(Vec<WeightedTarget>),
 	Failover { backend: RouteBackendReference },
 	Conditional(Vec<ConditionalTarget>),
+	Switchyard(llm::switchyard::SwitchyardRouting),
 }
 
 #[apply(schema_ser_schema!)]
@@ -475,6 +476,31 @@ impl ModelRouter {
 								virtual_model.name
 							),
 							"virtual_model_no_matching_target",
+						));
+					},
+				}
+			},
+			VirtualModelRouting::Switchyard(switchyard) => {
+				match Box::pin(switchyard.resolve(
+					&virtual_model.name,
+					req.headers(),
+					location.llm_request(),
+				))
+				.await
+				{
+					Ok(decision) => {
+						let target = decision.routed_model.clone();
+						req.extensions_mut().insert(decision);
+						(target, false)
+					},
+					Err(err) => {
+						if let Some(decision) = err.decision {
+							req.extensions_mut().insert(decision);
+						}
+						return ResolveResult::DirectResponse(llm_error_response(
+							err.status,
+							&err.message,
+							err.code,
 						));
 					},
 				}

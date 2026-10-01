@@ -38,6 +38,7 @@ span more than one agentgateway traffic type.
 * [llm-prompt-guard](llm-prompt-guard/README.md): configure prompt guards for LLM requests and responses.
 * [llm-semantic-routing](llm-semantic-routing/README.md): use vLLM Semantic Router for cost-based or tier-aware semantic model selection.
 * [llm-standalone-epp](llm-standalone-epp/README.md): run agentgateway as the sidecar proxy next to a standalone EPP deployment on Kubernetes.
+* [llm-switchyard-routing](llm-switchyard-routing/README.md): route one virtual model across an equivalence class of capable and efficient models with NVIDIA NeMo Switchyard, session affinity, and capability constraints.
 * [llm-telemetry](llm-telemetry/README.md): export traces for LLM backend calls.
 
 ### Traffic

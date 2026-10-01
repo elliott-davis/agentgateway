@@ -540,6 +540,102 @@ pub struct LocalLLMVirtualModelRouting {
 	/// in order until the best match is found.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	conditional: Option<LocalLLMConditionalRouting>,
+	/// switchyard enables contract-aware dynamic routing among an equivalence class of models.
+	/// The first target is the anchor used for strict requests and fallbacks.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	switchyard: Option<LocalLLMSwitchyardRouting>,
+}
+
+#[apply(schema_de!)]
+pub struct LocalLLMSwitchyardRouting {
+	/// strategy selects the Switchyard algorithm. Defaults to stageRouter.
+	#[serde(default)]
+	strategy: LocalSwitchyardStrategy,
+	/// equivalenceClass names the class for telemetry. Defaults to the virtual model name.
+	#[serde(default)]
+	equivalence_class: Option<String>,
+	/// targets are the models Switchyard may select. The first target is the anchor.
+	targets: Vec<LocalLLMSwitchyardTarget>,
+	/// sessionAffinity pins a session to its model until a decisive escalation. Disabled when unset.
+	#[serde(default)]
+	session_affinity: Option<LocalSwitchyardSessionAffinity>,
+	/// fallbackBehavior controls out-of-class recommendations. Defaults to fallbackToRequested.
+	#[serde(default)]
+	fallback_behavior: LocalSwitchyardFallbackBehavior,
+	/// stageRouter tunes the StageRouter strategy.
+	#[serde(default)]
+	stage_router: Option<LocalSwitchyardStageRouter>,
+}
+
+#[apply(schema_de!)]
+#[derive(Default)]
+pub enum LocalSwitchyardStrategy {
+	#[default]
+	StageRouter,
+}
+
+#[apply(schema_de!)]
+pub struct LocalLLMSwitchyardTarget {
+	/// model is resolved against llm.models using the same wildcard matching as client requests.
+	model: String,
+	/// tier is capable or efficient.
+	tier: LocalSwitchyardTier,
+	/// contextWindow in tokens, compared against the x-routing-min-context-window request header.
+	#[serde(default)]
+	context_window: Option<u64>,
+}
+
+#[apply(schema_de!)]
+pub enum LocalSwitchyardTier {
+	Capable,
+	Efficient,
+}
+
+#[apply(schema_de!)]
+pub struct LocalSwitchyardSessionAffinity {
+	/// header carries the session identifier. Defaults to x-agent-session-id.
+	#[serde(default = "default_switchyard_session_header")]
+	header: String,
+	/// idleTimeout is how long an idle session stays pinned. Defaults to 1h.
+	#[serde(default, with = "crate::serdes::serde_dur_option")]
+	#[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
+	idle_timeout: Option<Duration>,
+	/// maxSessions bounds the number of tracked sessions. Defaults to 10000.
+	#[serde(default)]
+	max_sessions: Option<usize>,
+}
+
+fn default_switchyard_session_header() -> String {
+	"x-agent-session-id".to_string()
+}
+
+#[apply(schema_de!)]
+#[derive(Default)]
+pub enum LocalSwitchyardFallbackBehavior {
+	#[default]
+	FallbackToRequested,
+	RejectIfOutOfClass,
+}
+
+#[apply(schema_de!)]
+pub struct LocalSwitchyardStageRouter {
+	/// mode is capableFirst (default) or efficientFirst: the tier used when the scorer is not confident.
+	#[serde(default)]
+	mode: LocalSwitchyardPickerMode,
+	/// confidenceThreshold is the scorer confidence required for a decisive pick, in [0, 1]. Defaults to 0.5.
+	#[serde(default)]
+	confidence_threshold: Option<f64>,
+	/// capableHoldTurns is how many requests stay on the capable tier after an escalation. Defaults to 2.
+	#[serde(default)]
+	capable_hold_turns: Option<u32>,
+}
+
+#[apply(schema_de!)]
+#[derive(Default)]
+pub enum LocalSwitchyardPickerMode {
+	#[default]
+	CapableFirst,
+	EfficientFirst,
 }
 
 #[apply(schema_de!)]
@@ -4160,6 +4256,7 @@ enum LocalLLMVirtualRoutingStrategy<'a> {
 	Weighted(&'a LocalLLMWeightedRouting),
 	Failover(&'a LocalLLMFailoverRouting),
 	Conditional(&'a LocalLLMConditionalRouting),
+	Switchyard(&'a LocalLLMSwitchyardRouting),
 }
 
 fn llm_model_matches(pattern: &str, model: &str) -> anyhow::Result<bool> {
@@ -4191,6 +4288,12 @@ impl<'a> LocalLLMVirtualRoutingStrategy<'a> {
 					.iter()
 					.map(|target| target.model.as_str()),
 			),
+			Self::Switchyard(switchyard) => Box::new(
+				switchyard
+					.targets
+					.iter()
+					.map(|target| target.model.as_str()),
+			),
 		}
 	}
 }
@@ -4199,7 +4302,8 @@ impl LocalLLMVirtualModel {
 	fn routing_strategy(&self) -> anyhow::Result<LocalLLMVirtualRoutingStrategy<'_>> {
 		let strategy_count = usize::from(self.routing.weighted.is_some())
 			+ usize::from(self.routing.failover.is_some())
-			+ usize::from(self.routing.conditional.is_some());
+			+ usize::from(self.routing.conditional.is_some())
+			+ usize::from(self.routing.switchyard.is_some());
 		if strategy_count != 1 {
 			bail!(
 				"virtual model {} must specify exactly one routing strategy",
@@ -4225,6 +4329,15 @@ impl LocalLLMVirtualModel {
 				);
 			}
 			return Ok(LocalLLMVirtualRoutingStrategy::Conditional(conditional));
+		}
+		if let Some(switchyard) = self.routing.switchyard.as_ref() {
+			if switchyard.targets.is_empty() {
+				bail!(
+					"virtual model {} must specify at least one switchyard target",
+					self.name
+				);
+			}
+			return Ok(LocalLLMVirtualRoutingStrategy::Switchyard(switchyard));
 		}
 		if let Some(weighted) = self.routing.weighted.as_ref() {
 			if weighted.targets.is_empty() {
@@ -4726,6 +4839,55 @@ async fn convert_llm_config(
 						})
 						.collect(),
 				)
+			},
+			LocalLLMVirtualRoutingStrategy::Switchyard(switchyard) => {
+				for target in &switchyard.targets {
+					resolved_models.resolve(&target.model)?;
+				}
+				let defaults = llm::switchyard::StageRouterSettings::default();
+				let stage_router = switchyard.stage_router.as_ref();
+				let settings = llm::switchyard::StageRouterSettings {
+					efficient_first: stage_router
+						.is_some_and(|s| matches!(s.mode, LocalSwitchyardPickerMode::EfficientFirst)),
+					confidence_threshold: stage_router
+						.and_then(|s| s.confidence_threshold)
+						.unwrap_or(defaults.confidence_threshold),
+					capable_hold_turns: stage_router
+						.and_then(|s| s.capable_hold_turns)
+						.unwrap_or(defaults.capable_hold_turns),
+				};
+				let LocalSwitchyardStrategy::StageRouter = switchyard.strategy;
+				llm::model_router::VirtualModelRouting::Switchyard(llm::switchyard::SwitchyardRouting::new(
+					switchyard
+						.equivalence_class
+						.clone()
+						.unwrap_or_else(|| virtual_model.name.clone()),
+					switchyard
+						.targets
+						.iter()
+						.map(|target| llm::switchyard::SwitchyardTarget {
+							model: target.model.clone(),
+							tier: match target.tier {
+								LocalSwitchyardTier::Capable => llm::switchyard::Tier::Capable,
+								LocalSwitchyardTier::Efficient => llm::switchyard::Tier::Efficient,
+							},
+							context_window: target.context_window,
+							invalid: false,
+						})
+						.collect(),
+					switchyard.session_affinity.as_ref().map(|a| {
+						llm::switchyard::SessionAffinity::new(a.header.clone(), a.idle_timeout, a.max_sessions)
+					}),
+					match switchyard.fallback_behavior {
+						LocalSwitchyardFallbackBehavior::FallbackToRequested => {
+							llm::switchyard::FallbackBehavior::FallbackToRequested
+						},
+						LocalSwitchyardFallbackBehavior::RejectIfOutOfClass => {
+							llm::switchyard::FallbackBehavior::RejectIfOutOfClass
+						},
+					},
+					settings,
+				)?)
 			},
 			LocalLLMVirtualRoutingStrategy::Weighted(weighted) => {
 				for target in &weighted.targets {

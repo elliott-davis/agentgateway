@@ -2308,10 +2308,69 @@ message ModelRoute {
       BackendReference backend = 1;
     }
 
+    // Contract-aware dynamic routing driven by NeMo Switchyard (switchyard-libsy).
+    // The targets form a single equivalence class: Switchyard may only select
+    // among them, and the data plane re-checks every recommendation against the
+    // class (narrowed by client capability headers) before dispatch.
+    message Switchyard {
+      enum Strategy {
+        STAGE_ROUTER = 0;
+      }
+      enum Tier {
+        CAPABLE = 0;
+        EFFICIENT = 1;
+      }
+      enum FallbackBehavior {
+        // Route to the anchor (first) target when a recommendation is out of class.
+        FALLBACK_TO_REQUESTED = 0;
+        // Fail the request when a recommendation is out of class.
+        REJECT_IF_OUT_OF_CLASS = 1;
+      }
+      message Target {
+        // Concrete model name. Same contract as Weighted.Target.model.
+        string model = 1;
+        Tier tier = 2;
+        // Context window in tokens, compared against x-routing-min-context-window.
+        // Unset means unknown; such targets never satisfy a minimum context window.
+        optional uint64 context_window = 3;
+        // The control plane could not resolve this target. It is excluded from
+        // the equivalence class.
+        bool invalid = 4;
+      }
+      message SessionAffinity {
+        // Request header carrying the agent session identifier.
+        string header = 1;
+        // Sessions idle longer than this are forgotten. Unset uses the data plane default.
+        google.protobuf.Duration idle_timeout = 2;
+        // Maximum number of tracked sessions. 0 uses the data plane default.
+        uint32 max_sessions = 3;
+      }
+      message StageRouter {
+        // Default to the efficient tier when the scorer is not confident.
+        // Defaults to the capable tier.
+        bool efficient_first = 1;
+        // Scorer confidence required for a decisive pick, in [0, 1].
+        optional double confidence_threshold = 2;
+        // Requests kept on the capable tier after an escalation.
+        optional uint32 capable_hold_turns = 3;
+      }
+      Strategy strategy = 1;
+      // Name of the equivalence class, reported in telemetry.
+      string equivalence_class = 2;
+      // The first target is the anchor: strict/opt-out requests and
+      // FALLBACK_TO_REQUESTED route to it.
+      repeated Target targets = 3;
+      // Unset disables session affinity.
+      SessionAffinity session_affinity = 4;
+      FallbackBehavior fallback_behavior = 5;
+      StageRouter stage_router = 6;
+    }
+
     oneof routing {
       Weighted weighted = 1;
       Conditional conditional = 2;
       Failover failover = 3;
+      Switchyard switchyard = 4;
     }
   }
 

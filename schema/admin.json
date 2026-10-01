@@ -1141,6 +1141,18 @@
             "conditional"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "switchyard": {
+              "$ref": "#/$defs/SwitchyardRouting"
+            }
+          },
+          "required": [
+            "switchyard"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -1189,6 +1201,149 @@
       "required": [
         "model",
         "when"
+      ]
+    },
+    "SwitchyardRouting": {
+      "type": "object",
+      "properties": {
+        "strategy": {
+          "$ref": "#/$defs/SwitchyardStrategy"
+        },
+        "equivalenceClass": {
+          "type": "string"
+        },
+        "targets": {
+          "description": "The first valid target is the anchor.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SwitchyardTarget"
+          }
+        },
+        "sessionAffinity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionAffinity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fallbackBehavior": {
+          "$ref": "#/$defs/FallbackBehavior"
+        },
+        "stageRouter": {
+          "$ref": "#/$defs/StageRouterSettings"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "strategy",
+        "equivalenceClass",
+        "targets",
+        "fallbackBehavior",
+        "stageRouter"
+      ]
+    },
+    "SwitchyardStrategy": {
+      "type": "string",
+      "enum": [
+        "stageRouter"
+      ]
+    },
+    "SwitchyardTarget": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "tier": {
+          "$ref": "#/$defs/Tier"
+        },
+        "contextWindow": {
+          "description": "Context window in tokens. Unknown windows never satisfy `x-routing-min-context-window`.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "invalid": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "tier"
+      ]
+    },
+    "Tier": {
+      "type": "string",
+      "enum": [
+        "capable",
+        "efficient"
+      ]
+    },
+    "SessionAffinity": {
+      "type": "object",
+      "properties": {
+        "header": {
+          "description": "Request header carrying the agent session identifier.",
+          "type": "string"
+        },
+        "idleTimeout": {
+          "type": "string"
+        },
+        "maxSessions": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "header",
+        "idleTimeout",
+        "maxSessions"
+      ]
+    },
+    "FallbackBehavior": {
+      "oneOf": [
+        {
+          "description": "Route to the anchor (first) target when a recommendation is out of class.",
+          "type": "string",
+          "const": "fallbackToRequested"
+        },
+        {
+          "description": "Fail the request when a recommendation is out of class.",
+          "type": "string",
+          "const": "rejectIfOutOfClass"
+        }
+      ]
+    },
+    "StageRouterSettings": {
+      "type": "object",
+      "properties": {
+        "efficientFirst": {
+          "type": "boolean"
+        },
+        "confidenceThreshold": {
+          "type": "number",
+          "format": "double"
+        },
+        "capableHoldTurns": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "efficientFirst",
+        "confidenceThreshold",
+        "capableHoldTurns"
       ]
     }
   }

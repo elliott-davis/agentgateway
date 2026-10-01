@@ -150,6 +150,8 @@ spiffe.workspace = true
 sse-stream.workspace = true
 subtle.workspace = true
 sqlx.workspace = true
+switchyard-libsy.workspace = true
+switchyard-protocol.workspace = true
 thiserror.workspace = true
 tiktoken-rs.workspace = true
 mimalloc = { workspace = true, optional = true }

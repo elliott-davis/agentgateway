@@ -692,6 +692,37 @@ async fn test_llm_virtual_model_conditional_config() {
 }
 
 #[tokio::test]
+async fn test_llm_virtual_model_switchyard_config() {
+	test_config_parsing("llm_virtual_model_switchyard").await;
+}
+
+#[tokio::test]
+async fn test_llm_switchyard_virtual_model_rejects_invalid_threshold() {
+	let err = normalize_test_config(
+		r#"
+llm:
+  models:
+  - name: a
+    provider: openAI
+    params:
+      apiKey: sk
+  virtualModels:
+  - name: auto
+    routing:
+      switchyard:
+        targets:
+        - model: a
+          tier: capable
+        stageRouter:
+          confidenceThreshold: 2.0
+"#,
+	)
+	.await
+	.expect_err("threshold out of range");
+	assert!(err.to_string().contains("confidence_threshold"), "{err}");
+}
+
+#[tokio::test]
 async fn test_backend_auth_credentials_config() {
 	test_config_parsing("backend_auth_credentials").await;
 }

@@ -1,0 +1,94 @@
+# A Gateway, two internal Anthropic models, and a Switchyard virtual model.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: agentgateway-proxy
+  namespace: agentgateway-system
+spec:
+  gatewayClassName: agentgateway
+  listeners:
+  - name: llm
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      kinds:
+      - group: agentgateway.dev
+        kind: AgentgatewayModel
+      namespaces:
+        from: Same
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: claude-3-7-sonnet
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: agentgateway-proxy
+    sectionName: llm
+  visibility: Internal
+  provider: Anthropic
+  policies:
+    transformations:
+    - field: model
+      expression: '"claude-3-7-sonnet-latest"'
+    auth:
+      secretRef:
+        name: anthropic-secret
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: claude-3-5-sonnet
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: agentgateway-proxy
+    sectionName: llm
+  visibility: Internal
+  provider: Anthropic
+  policies:
+    transformations:
+    - field: model
+      expression: '"claude-3-5-sonnet-latest"'
+    auth:
+      secretRef:
+        name: anthropic-secret
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: coding-agent
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: agentgateway-proxy
+    sectionName: llm
+  virtualModel:
+    switchyard:
+      equivalenceClass: claude
+      # The first target is the anchor.
+      targets:
+      - modelRef:
+          name: claude-3-7-sonnet
+        tier: Capable
+        contextWindow: 200000
+      - modelRef:
+          name: claude-3-5-sonnet
+        tier: Efficient
+        contextWindow: 200000
+      sessionAffinity:
+        header: x-agent-session-id
+        idleTimeout: 1h
+        maxSessions: 10000
+      fallbackBehavior: FallbackToRequested
+      stageRouter:
+        mode: EfficientFirst
+        confidenceThresholdPercent: 60
+        capableHoldTurns: 2
